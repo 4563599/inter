@@ -1,123 +1,125 @@
 package com.myokhttp;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * OkHttpClient - HTTP 客户端
- * 
+ * <p>
  * 【为什么需要这个类？】
  * - 统一管理所有配置（超时、拦截器等）
  * - 管理共享资源（连接池、线程池）
  * - 提供创建 Call 的工厂方法
- * 
+ * <p>
  * 【为什么推荐单例？】
  * 1. 共享连接池：提升性能
  * 2. 共享线程池：节省资源
  * 3. 配置一致：避免配置不一致的问题
- * 
+ * <p>
  * 【Builder 模式的好处】
  * 1. 链式调用，代码优雅
  * 2. 配置灵活，可选参数
  * 3. 易于扩展新配置
- * 
+ * <p>
  * 【核心职责】
  * 1. 管理配置：超时、重试等
  * 2. 管理资源：连接池、调度器
  * 3. 创建 Call：newCall() 工厂方法
- * 
+ *
  * @author Your Name
  */
 public class OkHttpClient {
-    
+
     // ========== 资源管理（共享资源）==========
-    
+
     /**
      * 调度器：管理异步请求
-     * 
+     * <p>
      * 【为什么需要？】
      * - 管理线程池
      * - 控制并发数量
      * - 管理等待队列
      */
     private final Dispatcher dispatcher;
-    
+
     /**
      * 应用拦截器列表
-     * 
+     * <p>
      * 【什么是应用拦截器？】
      * - 用户添加的拦截器
      * - 在重试、缓存之前执行
      * - 只调用一次，不受重试影响
      */
     private final List<Interceptor> interceptors;
-    
+
     /**
      * 网络拦截器列表
-     * 
+     * <p>
      * 【什么是网络拦截器？】
      * - 用户添加的拦截器
      * - 在真实网络请求之前执行
      * - 可能被调用多次（重试）
      */
     private final List<Interceptor> networkInterceptors;
-    
+
     /**
      * 连接池
-     * 
+     * <p>
      * 【为什么需要？】
      * - 复用 TCP 连接
      * - 提升性能
      */
     private final ConnectionPool connectionPool;
-    
+
     // ========== 配置（不可变）==========
-    
+
     /**
      * 连接超时时间（毫秒）
-     * 
+     * <p>
      * 【默认值】10 秒
      * 【作用】建立 TCP 连接的最大等待时间
      */
     private final int connectTimeout;
-    
+
     /**
      * 读取超时时间（毫秒）
-     * 
+     * <p>
      * 【默认值】10 秒
      * 【作用】从 Socket 读取数据的最大等待时间
      */
     private final int readTimeout;
-    
+
     /**
      * 写入超时时间（毫秒）
-     * 
+     * <p>
      * 【默认值】10 秒
      * 【作用】向 Socket 写入数据的最大等待时间
      */
     private final int writeTimeout;
-    
+
     /**
      * 是否跟随重定向
-     * 
+     * <p>
      * 【默认值】true
      * 【作用】收到 3xx 响应时是否自动重定向
      */
     private final boolean followRedirects;
-    
+
     /**
      * 连接失败时是否重试
-     * 
+     * <p>
      * 【默认值】true
      * 【作用】网络错误时是否自动重试
      */
     private final boolean retryOnConnectionFailure;
 
     // ========== 私有构造函数 ==========
-    
+
     /**
      * 私有构造函数，只能通过 Builder 创建
-     * 
+     * <p>
      * 【为什么私有？】
      * - 强制使用 Builder 模式
      * - 确保正确初始化
@@ -130,96 +132,108 @@ public class OkHttpClient {
         // 2. List 需要创建新的 ArrayList（防止外部修改）
         //    this.interceptors = new ArrayList<>(builder.interceptors);
         // 3. 配置类字段直接赋值（超时等）
-        
+        this.dispatcher = builder.dispatcher;
+        this.connectionPool = builder.connectionPool;
+
+        // 【重要】防御性拷贝：防止外部通过 builder.interceptors.add() 修改已经创建好的 client
+        // 同时把 list 变成不可修改的（Unmodifiable），保证 Client 的不可变性
+        this.interceptors = Collections.unmodifiableList(new ArrayList<>(builder.interceptors));
+        this.networkInterceptors = Collections.unmodifiableList(new ArrayList<>(builder.networkInterceptors));
+
+        this.connectTimeout = builder.connectTimeout;
+        this.readTimeout = builder.readTimeout;
+        this.writeTimeout = builder.writeTimeout;
+        this.followRedirects = builder.followRedirects;
+        this.retryOnConnectionFailure = builder.retryOnConnectionFailure;
+
     }
 
     // ========== 工厂方法 ==========
-    
+
     /**
      * 创建一个新的 Call
-     * 
+     * <p>
      * 【这是工厂方法】
      * - 隐藏 RealCall 的实现细节
      * - 返回 Call 接口
-     * 
+     * <p>
      * 【使用示例】
      * Call call = client.newCall(request);
      * Response response = call.execute();
-     * 
+     *
      * @param request 请求对象
      * @return Call 对象
      */
     public Call newCall(Request request) {
         // TODO: return new RealCall(this, request);
-        return null;
+        return new RealCall(this, request);
     }
 
     // ========== Getter 方法 ==========
-    
+
     public Dispatcher dispatcher() {
         // TODO: 返回 dispatcher
-        return null;
+        return dispatcher;
     }
 
     public List<Interceptor> interceptors() {
         // TODO: 返回 interceptors（注意：这里不需要返回副本，因为外部不会修改）
-        return null;
+        return interceptors;
     }
 
     public List<Interceptor> networkInterceptors() {
         // TODO: 返回 networkInterceptors
-        return null;
+        return networkInterceptors;
     }
 
     public ConnectionPool connectionPool() {
         // TODO: 返回 connectionPool
-        return null;
+        return connectionPool;
     }
 
     public int connectTimeoutMillis() {
         // TODO: 返回 connectTimeout
-        return 0;
+        return connectTimeout;
     }
 
     public int readTimeoutMillis() {
         // TODO: 返回 readTimeout
-        return 0;
+        return readTimeout;
     }
 
     public int writeTimeoutMillis() {
         // TODO: 返回 writeTimeout
-        return 0;
+        return writeTimeout;
     }
 
     public boolean followRedirects() {
         // TODO: 返回 followRedirects
-        return false;
+        return followRedirects;
     }
 
     public boolean retryOnConnectionFailure() {
         // TODO: 返回 retryOnConnectionFailure
-        return false;
+        return retryOnConnectionFailure;
     }
 
     /**
      * 创建一个新的 Builder（基于当前配置）
-     * 
+     * <p>
      * 【使用场景】
      * - 需要修改某些配置
      * - 创建新的客户端实例
-     * 
+     *
      * @return 新的 Builder
      */
     public Builder newBuilder() {
-        // TODO: return new Builder(this);
-        return null;
+        return new Builder(this);
     }
 
     // ========== Builder 类 ==========
-    
+
     /**
      * Builder 模式：构建 OkHttpClient
-     * 
+     * <p>
      * 【为什么用 Builder？】
      * - 配置项很多（10+）
      * - 大部分是可选的
@@ -231,7 +245,7 @@ public class OkHttpClient {
         private List<Interceptor> interceptors = new ArrayList<>();
         private List<Interceptor> networkInterceptors = new ArrayList<>();
         private ConnectionPool connectionPool;
-        
+
         // 配置（有默认值）
         private int connectTimeout = 10_000;    // 10 秒
         private int readTimeout = 10_000;       // 10 秒
@@ -241,51 +255,55 @@ public class OkHttpClient {
 
         /**
          * 默认构造函数
-         * 
+         * <p>
          * 【初始化默认值】
          * - 创建默认的 Dispatcher
          * - 创建默认的 ConnectionPool
          */
         public Builder() {
             // TODO: 初始化默认资源
-            // this.dispatcher = new Dispatcher();
-            // this.connectionPool = new ConnectionPool();
-            
+            this.dispatcher = new Dispatcher();
+            this.connectionPool = new ConnectionPool();
+
         }
 
         /**
          * 基于现有 OkHttpClient 的构造函数
-         * 
+         * <p>
          * 【使用场景】
          * - client.newBuilder()
          * - 复制现有配置
          */
         private Builder(OkHttpClient client) {
             // TODO: 从 client 复制所有字段
-            // 资源：
-            // this.dispatcher = client.dispatcher;
-            // this.connectionPool = client.connectionPool;
-            // 拦截器：
-            // this.interceptors = new ArrayList<>(client.interceptors);
-            // 配置：
-            // this.connectTimeout = client.connectTimeout;
-            // ...
-            
+            this.dispatcher = client.dispatcher;       // 关键：共享线程池
+            this.connectionPool = client.connectionPool; // 关键：共享连接池
+
+            // 列表要重新 new 一个，因为 Builder 里的列表应该是可变的
+            this.interceptors = new ArrayList<>(client.interceptors);
+            this.networkInterceptors = new ArrayList<>(client.networkInterceptors);
+
+            this.connectTimeout = client.connectTimeout;
+            this.readTimeout = client.readTimeout;
+            this.writeTimeout = client.writeTimeout;
+            this.followRedirects = client.followRedirects;
+            this.retryOnConnectionFailure = client.retryOnConnectionFailure;
+
         }
 
         /**
          * 添加应用拦截器
-         * 
+         * <p>
          * 【什么时候执行？】
          * - 在所有内置拦截器之前
          * - 不受重试、重定向影响
          * - 只调用一次
-         * 
+         * <p>
          * 【使用场景】
          * - 添加全局请求头
          * - 记录请求日志
          * - 添加签名
-         * 
+         *
          * @param interceptor 拦截器
          * @return this
          */
@@ -294,114 +312,109 @@ public class OkHttpClient {
             // 1. 检查 interceptor 是否为 null
             // 2. interceptors.add(interceptor);
             // 3. return this;
-            
-            return null;
+
+            if (interceptor == null) throw new IllegalArgumentException("interceptor == null");
+            interceptors.add(interceptor);
+            return this;
         }
 
         /**
          * 添加网络拦截器
-         * 
+         * <p>
          * 【什么时候执行？】
          * - 在真实网络请求之前
          * - 可能被调用多次（重试）
-         * 
+         * <p>
          * 【使用场景】
          * - 记录网络层数据
          * - 访问连接信息
-         * 
+         *
          * @param interceptor 拦截器
          * @return this
          */
         public Builder addNetworkInterceptor(Interceptor interceptor) {
             // TODO: 与 addInterceptor 类似
-            return null;
+            if (interceptor == null) throw new IllegalArgumentException("interceptor == null");
+            networkInterceptors.add(interceptor);
+            return this;
         }
 
-        /**
-         * 设置连接超时时间
-         * 
-         * 【什么是连接超时？】
-         * - 建立 TCP 连接的最大等待时间
-         * - 包括 DNS 解析时间
-         * 
-         * 【建议值】
-         * - 快速网络：5-10 秒
-         * - 慢速网络：15-30 秒
-         * 
-         * @param timeout 超时时间（毫秒）
-         * @return this
-         */
+        public Builder connectTimeout(int timeout, TimeUnit unit) { // 通常习惯传 TimeUnit
+            // TODO
+            if (timeout < 0) throw new IllegalArgumentException("timeout < 0");
+            // 简单起见，这里直接存毫秒。源码中会做单位转换
+            this.connectTimeout = (int) unit.toMillis(timeout);
+            return this;
+        }
+
+        // 为了适配你的模板接口，保留这个 int 版本
         public Builder connectTimeout(int timeout) {
-            // TODO:
-            // 1. 检查 timeout >= 0
-            // 2. this.connectTimeout = timeout;
-            // 3. return this;
-            
-            return null;
+            this.connectTimeout = timeout;
+            return this;
         }
 
         /**
          * 设置读取超时时间
-         * 
+         * <p>
          * 【什么是读取超时？】
          * - 从 Socket 读取数据的最大等待时间
          * - 不是整个请求的超时时间
-         * 
+         *
          * @param timeout 超时时间（毫秒）
          * @return this
          */
         public Builder readTimeout(int timeout) {
             // TODO: 与 connectTimeout 类似
-            return null;
+            this.readTimeout = timeout;
+            return this;
         }
 
         /**
          * 设置写入超时时间
-         * 
+         * <p>
          * 【什么是写入超时？】
          * - 向 Socket 写入数据的最大等待时间
          * - 主要影响上传大文件
-         * 
+         *
          * @param timeout 超时时间（毫秒）
          * @return this
          */
         public Builder writeTimeout(int timeout) {
             // TODO: 与 connectTimeout 类似
-            return null;
+            this.readTimeout = timeout;
+            return this;
         }
 
         /**
          * 设置是否跟随重定向
-         * 
+         *
          * @param followRedirects 是否跟随
          * @return this
          */
         public Builder followRedirects(boolean followRedirects) {
             // TODO:
-            // this.followRedirects = followRedirects;
-            // return this;
-            
-            return null;
+            this.followRedirects = followRedirects;
+            return this;
         }
 
         /**
          * 设置连接失败时是否重试
-         * 
+         *
          * @param retry 是否重试
          * @return this
          */
         public Builder retryOnConnectionFailure(boolean retry) {
-            // TODO: 与 followRedirects 类似
-            return null;
+            this.retryOnConnectionFailure = retry;
+            return this;
         }
 
         /**
          * 设置调度器
-         * 
+         * <p>
          * 【什么时候用？】
          * - 自定义线程池配置
          * - 自定义并发控制
-         * 
+         *
          * @param dispatcher 调度器
          * @return this
          */
@@ -410,33 +423,38 @@ public class OkHttpClient {
             // 1. 检查 dispatcher 是否为 null
             // 2. this.dispatcher = dispatcher;
             // 3. return this;
-            
-            return null;
+
+            if (dispatcher == null) throw new IllegalArgumentException("dispatcher == null");
+            this.dispatcher = dispatcher;
+            return this;
         }
 
         /**
          * 设置连接池
-         * 
+         * <p>
          * 【什么时候用？】
          * - 自定义连接池大小
          * - 自定义连接保持时间
-         * 
+         *
          * @param connectionPool 连接池
          * @return this
          */
         public Builder connectionPool(ConnectionPool connectionPool) {
             // TODO: 与 dispatcher 类似
-            return null;
+            if (connectionPool == null)
+                throw new IllegalArgumentException("connectionPool == null");
+            this.connectionPool = connectionPool;
+            return this;
         }
 
         /**
          * 构建 OkHttpClient
-         * 
+         *
          * @return OkHttpClient 实例
          */
         public OkHttpClient build() {
             // TODO: return new OkHttpClient(this);
-            return null;
+            return new OkHttpClient(this);
         }
     }
 }
