@@ -31,9 +31,7 @@ fun main() {
  * - 属性可设置默认值；调用时可省略。
  */
 class User(
-    val id: Int,
-    var name: String,
-    val email: String = "unknown"
+    val id: Int, var name: String, val email: String = "unknown"
 ) {
     init {
         require(id > 0) { "id must be positive" }
