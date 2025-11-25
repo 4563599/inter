@@ -17,6 +17,7 @@ class MyClass private constructor(val name: String) { // 构造方法私有化�
         // 伴生对象可以有自己的属性，这就像Java的 static final 变量
         const val TAG = "MyClass"
 
+
         // 伴生对象的方法，可以像Java的 static 方法一样被调用
         fun newInstance(name: String): MyClass {
             println("在伴生对象中调用方法: newInstance")
@@ -31,6 +32,7 @@ class MyClass private constructor(val name: String) { // 构造方法私有化�
         }
     }
 }
+
 
 fun main() {
     // 1. 像调用静态方法一样，直接通过类名调用伴生对象的方法
