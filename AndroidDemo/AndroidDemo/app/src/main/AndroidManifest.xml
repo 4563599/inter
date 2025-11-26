@@ -12,10 +12,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AndroidDemo">
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.androiddemo.kotlin.delegation.DelegationModeActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.AndroidDemo">
+            android:theme="@style/Theme.AppCompat">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

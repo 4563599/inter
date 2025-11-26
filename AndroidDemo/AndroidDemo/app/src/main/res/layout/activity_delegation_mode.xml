@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <Button
+        android:id="@+id/btnPrint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="触发委托打印" />
+
+    <TextView
+        android:id="@+id/tvResult"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="16dp"
+        android:background="@android:color/darker_gray"
+        android:padding="12dp"
+        android:textColor="@android:color/white"
+        android:textIsSelectable="true"
+        android:textSize="16sp" />
+
+</LinearLayout>
