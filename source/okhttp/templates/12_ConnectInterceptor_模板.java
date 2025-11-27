@@ -4,35 +4,35 @@ import java.io.IOException;
 
 /**
  * 连接拦截器
- * 
+ * <p>
  * 【为什么需要这个拦截器？】
  * - 建立与服务器的TCP连接
  * - 从连接池获取可复用的连接
  * - 管理连接的生命周期
- * 
+ * <p>
  * 【这是应用层和网络层的分界点】
  * - 之前的拦截器：处理应用层逻辑（重试、缓存等）
  * - 这个拦截器：建立网络连接
  * - 之后的拦截器：执行真实的网络I/O
- * 
+ * <p>
  * 【核心职责】
  * 1. 从连接池获取可复用的连接
  * 2. 如果没有可复用的连接，创建新连接
  * 3. 建立TCP连接
  * 4. 使用完毕后，将连接放回连接池
- * 
+ * <p>
  * 【连接复用的好处】
  * - 跳过TCP三次握手（节省50-100ms）
  * - 跳过TLS握手（HTTPS，节省100-200ms）
  * - 显著提升性能
- * 
+ *
  * @author Your Name
  */
 public class ConnectInterceptor implements Interceptor {
-    
+
     /**
      * OkHttpClient实例
-     * 
+     * <p>
      * 【为什么需要？】
      * - 获取连接池
      * - 获取超时配置
@@ -45,14 +45,14 @@ public class ConnectInterceptor implements Interceptor {
 
     /**
      * 拦截方法
-     * 
+     * <p>
      * 【执行流程】
      * 1. 解析URL，提取host和port
      * 2. 从连接池获取可复用的连接
      * 3. 如果没有，创建新连接
      * 4. 执行下一个拦截器（使用这个连接）
      * 5. 使用完毕，放回连接池
-     * 
+     * <p>
      * 【关键点】
      * - 连接必须在使用后放回连接池
      * - 如果发生异常，需要关闭连接
@@ -60,136 +60,130 @@ public class ConnectInterceptor implements Interceptor {
      */
     @Override
     public Response intercept(Chain chain) throws IOException {
-        // TODO: 步骤1 - 获取请求并解析URL
-        // Request request = chain.request();
-        
-        // 解析URL，提取host和port
-        // String[] hostPort = parseUrl(request.url());
-        // String host = hostPort[0];
-        // int port = Integer.parseInt(hostPort[1]);
+        Request request = chain.request();
 
-        // TODO: 步骤2 - 从连接池获取连接
-        // RealConnection connection = client.connectionPool().get(host, port);
-        
-        // TODO: 步骤3 - 如果没有可复用的连接，创建新连接
-        // if (connection == null) {
-        //     // 没有可复用的连接，创建新连接
-        //     connection = new RealConnection(host, port);
-        //     
-        //     try {
-        //         // 建立TCP连接
-        //         connection.connect(
-        //             chain.connectTimeoutMillis(),  // 连接超时
-        //             chain.readTimeoutMillis()      // 读取超时
-        //         );
-        //         
-        //         // 标记为使用中（引用计数+1）
-        //         connection.acquire();
-        //     } catch (IOException e) {
-        //         // 连接失败
-        //         throw new IOException("无法连接到 " + host + ":" + port, e);
-        //     }
-        // }
+        // 1. 解析目标地址（host 和 port）
+        String[] hostPort = parseUrl(request.url());
+        String host = hostPort[0];
+        int port = Integer.parseInt(hostPort[1]);
 
-        // TODO: 步骤4 - 使用连接执行下一个拦截器
-        // try {
-        //     // 创建一个包装的Chain，携带连接信息
-        //     // 这样CallServerInterceptor可以获取到连接
-        //     ConnectedChain connectedChain = new ConnectedChain(chain, connection);
-        //     
-        //     // 执行下一个拦截器
-        //     Response response = chain.proceed(request);
-        //     
-        //     // 使用完毕，放回连接池
-        //     client.connectionPool().put(connection);
-        //     
-        //     return response;
-        // } catch (IOException e) {
-        //     // 如果发生异常，关闭连接
-        //     try {
-        //         connection.close();
-        //     } catch (IOException closeException) {
-        //         // 忽略关闭异常
-        //     }
-        //     throw e;
-        // }
-        
-        return null;
+        RealConnection connection = null;
+        try {
+            // 2. ⭐ 核心逻辑：先去池子里借一个连接
+            connection = client.connectionPool().get(host, port);
+
+            // 3. 如果池子是空的，就只能自己新建一个
+            if (connection == null) {
+                // System.out.println("没有可用连接，新建一个: " + host + ":" + port);
+                connection = new RealConnection(host, port);
+
+                // 3.1 真的去联网建立 TCP 通道（三次握手就在这里发生）
+                connection.connect(
+                        chain.connectTimeoutMillis(),
+                        chain.readTimeoutMillis()
+                );
+
+                // 3.2 标记为“正在使用”
+                connection.acquire();
+            } else {
+                // System.out.println("复用已有连接: " + host + ":" + port);
+            }
+
+            // 4. 把借来的连接，传给下一个拦截器（CallServerInterceptor）去用
+            // 这里用了一个装饰器 ConnectedChain，把 connection 塞进去
+            ConnectedChain connectedChain = new ConnectedChain(chain, connection);
+
+            // 5. 真正的网络请求在这里发生（数据传输）
+            Response response = connectedChain.proceed(request);
+
+            // 6. 用完了，记得还回池子！
+            client.connectionPool().put(connection);
+
+            return response;
+
+        } catch (IOException e) {
+            // 7. 只要出错了，这个连接多半是废了，直接关掉，别还给池子了
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (IOException ignored) {
+                }
+            }
+            throw e;
+        }
     }
 
     /**
      * 解析URL，提取host和port
-     * 
+     * <p>
      * 【URL格式】
      * http://example.com:8080/path?query=1
      * ↓
      * host: example.com
      * port: 8080
-     * 
+     * <p>
      * https://example.com/path
      * ↓
      * host: example.com
      * port: 443（HTTPS默认端口）
-     * 
+     * <p>
      * 【实现思路】
      * 1. 去除协议（http:// 或 https://）
      * 2. 提取到第一个/之前的部分
      * 3. 分离host和port
      * 4. 如果没有port，使用默认值
-     * 
+     *
      * @param url URL字符串
      * @return [host, port]
      */
     private String[] parseUrl(String url) {
-        // TODO: 实现URL解析
-        // try {
-        //     // 1. 去除协议
-        //     boolean isHttps = false;
-        //     if (url.startsWith("http://")) {
-        //         url = url.substring(7);
-        //     } else if (url.startsWith("https://")) {
-        //         url = url.substring(8);
-        //         isHttps = true;
-        //     }
-        //     
-        //     // 2. 提取host和port（到第一个/之前）
-        //     int slashIndex = url.indexOf("/");
-        //     if (slashIndex != -1) {
-        //         url = url.substring(0, slashIndex);
-        //     }
-        //     
-        //     // 3. 分离host和port
-        //     int colonIndex = url.indexOf(":");
-        //     if (colonIndex != -1) {
-        //         // 有端口号
-        //         String host = url.substring(0, colonIndex);
-        //         String port = url.substring(colonIndex + 1);
-        //         return new String[]{host, port};
-        //     } else {
-        //         // 没有端口号，使用默认值
-        //         String port = isHttps ? "443" : "80";
-        //         return new String[]{url, port};
-        //     }
-        // } catch (Exception e) {
-        //     // 解析失败，返回默认值
-        //     return new String[]{"localhost", "80"};
-        // }
-        
+        try {
+            // 1. 确定协议和默认端口
+            boolean isHttps = false;
+            if (url.startsWith("http://")) {
+                url = url.substring(7); // 干掉 http://
+            } else if (url.startsWith("https://")) {
+                url = url.substring(8); // 干掉 https://
+                isHttps = true;
+            }
+
+            // 2. 干掉路径（/abc?q=1）
+            int slashIndex = url.indexOf("/");
+            if (slashIndex != -1) {
+                url = url.substring(0, slashIndex);
+            }
+
+            // 3. 找找有没有冒号（自定义端口）
+            int colonIndex = url.indexOf(":");
+            if (colonIndex != -1) {
+                // 有冒号，说明指定了端口，如 google.com:8080
+                String host = url.substring(0, colonIndex);
+                String port = url.substring(colonIndex + 1);
+                return new String[]{host, port};
+            } else {
+                // 没冒号，用默认端口（http=80, https=443）
+                String port = isHttps ? "443" : "80";
+                return new String[]{url, port};
+            }
+        } catch (Exception e) {
+            // 解析失败保底
+            return new String[]{"localhost", "80"};
+        }
         return null;
     }
 
     /**
      * 包装的Chain，携带连接信息
-     * 
+     * <p>
      * 【为什么需要这个类？】
      * - CallServerInterceptor需要获取连接
      * - 通过Chain传递连接信息
-     * 
+     * <p>
      * 【设计模式：装饰器模式】
      * - 包装原有的Chain
      * - 添加connection()方法
      * - 其他方法委托给原Chain
-     * 
+     * <p>
      * 【简化说明】
      * 这是一个简化的实现。真实的OkHttp使用更复杂的
      * StreamAllocation来管理连接。
@@ -205,10 +199,10 @@ public class ConnectInterceptor implements Interceptor {
 
         /**
          * 获取连接
-         * 
+         * <p>
          * 【给CallServerInterceptor使用】
          * CallServerInterceptor会调用这个方法获取连接
-         * 
+         *
          * @return 连接对象
          */
         public RealConnection connection() {
@@ -216,7 +210,7 @@ public class ConnectInterceptor implements Interceptor {
         }
 
         // ========== 委托方法 ==========
-        
+
         @Override
         public Request request() {
             return delegate.request();
@@ -248,6 +242,20 @@ public class ConnectInterceptor implements Interceptor {
         }
     }
 }
+
+
+/**
+ * 1. 为什么要用“连接池”？
+ * 想象你要去河对岸（服务器）送货。
+ *
+ * 没有连接池（短连接）： 每次送货，你都要先造一座桥（TCP 三次握手），送完货后，立刻把桥拆了（四次挥手）。
+ *
+ * 后果：造桥拆桥累死人，大部分时间都浪费在修路上了，送货效率极低。
+ *
+ * 有连接池（长连接/Keep-Alive）： 第一次送货，造一座桥。送完货后，桥不拆，留着。 第二次送货，一看：“咦，有座现成的桥！”直接跑过去。
+ *
+ * 后果：省去了造桥时间，速度飞快。
+ */
 
 /*
 【编写提示】

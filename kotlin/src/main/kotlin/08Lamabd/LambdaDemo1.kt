@@ -107,4 +107,6 @@ fun main() {
     // **必须用 `*` (展开操作符 Spread Operator) **
     // `*` 的作用是把数组的每个元素“打散”，变成独立的参数再传进去。
     test4(*stringArray)
+
+    
 }

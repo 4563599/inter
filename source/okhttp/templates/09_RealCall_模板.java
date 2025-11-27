@@ -6,69 +6,69 @@ import java.util.List;
 
 /**
  * Call 的真实实现
- * 
+ * <p>
  * 【为什么需要这个类？】
  * - 实现 Call 接口的所有方法
  * - 管理请求的执行状态
  * - 构建和执行拦截器链
- * 
+ * <p>
  * 【核心职责】
  * 1. 状态管理：executed, canceled
  * 2. 同步执行：execute()
  * 3. 异步执行：enqueue()
  * 4. 构建拦截器链：getResponseWithInterceptorChain()
- * 
+ * <p>
  * 【这是连接用户和拦截器链的桥梁】
  * 用户代码 → RealCall → 拦截器链 → 网络请求
- * 
+ *
  * @author Your Name
  */
 public class RealCall implements Call {
-    
+
     // ========== 字段定义 ==========
-    
+
     /**
      * OkHttpClient 实例
-     * 
+     * <p>
      * 【为什么需要？】
      * - 获取配置（超时、拦截器等）
      * - 获取资源（连接池、调度器）
      */
     private final OkHttpClient client;
-    
+
     /**
      * 原始请求
-     * 
+     * <p>
      * 【为什么保存原始请求？】
      * - request() 方法需要返回
      * - 拦截器可能会修改请求，保存原始的
      */
     private final Request originalRequest;
-    
+
     /**
      * 是否已执行
-     * 
+     * <p>
      * 【为什么需要这个标志？】
      * - Call 只能执行一次
      * - 防止重复执行
      */
     private boolean executed;
-    
+
     /**
      * 是否已取消
-     * 
+     * <p>
      * 【如何工作？】
      * - cancel() 设置为 true
      * - 拦截器中检查这个标志
      * - 尽快停止执行
      */
-    private boolean canceled;
+    private volatile boolean canceled;
 
     // ========== 构造函数 ==========
-    
+
     /**
      * 构造函数
-     * 
+     * <p>
      * 【包级别访问权限】
      * - 只能被 OkHttpClient.newCall() 调用
      * - 用户不能直接 new RealCall()
@@ -77,33 +77,35 @@ public class RealCall implements Call {
         // TODO: 初始化字段
         // this.client = client;
         // this.originalRequest = request;
-        
+        this.client = client;
+        this.originalRequest = request;
+
     }
 
     // ========== 实现 Call 接口 ==========
-    
+
     @Override
     public Request request() {
         // TODO: 返回原始请求
-        return null;
+        return originalRequest;
     }
 
     /**
      * 同步执行请求
-     * 
+     * <p>
      * ⭐⭐⭐⭐⭐ 核心方法之一
-     * 
+     * <p>
      * 【执行流程】
      * 1. 检查是否已执行
      * 2. 通知 Dispatcher 开始执行
      * 3. 执行拦截器链
      * 4. 通知 Dispatcher 执行完成
      * 5. 返回响应
-     * 
+     * <p>
      * 【为什么用 synchronized？】
      * - 保护 executed 标志
      * - 防止并发执行
-     * 
+     * <p>
      * 【为什么用 try-finally？】
      * - 确保 finished() 一定被调用
      * - 即使发生异常也要清理资源
@@ -129,109 +131,124 @@ public class RealCall implements Call {
         //     // 4. 通知完成
         //     client.dispatcher().finished(this);
         // }
-        
-        return null;
+
+        synchronized (this) {
+            if (executed) {
+                throw new IllegalStateException("每个 Call 只能执行一次");
+            }
+            executed = true;
+        }
+
+        try {
+            // 2. 告诉调度器：我要开始跑了（记录到 runningSyncCalls）
+            client.dispatcher().executed(this);
+            // 3. 【核心】通过拦截器链拿到结果
+            return getResponseWithInterceptorChain();
+        } finally {
+            // 4. 无论成功失败，告诉调度器：我跑完了（从队列移除）
+            client.dispatcher().finished(this);
+        }
+
     }
 
     /**
      * 异步执行请求
-     * 
+     * <p>
      * 【执行流程】
      * 1. 检查是否已执行
      * 2. 创建 AsyncCall
      * 3. 提交给 Dispatcher
      * 4. Dispatcher 在线程池中执行
-     * 
+     * <p>
      * 【与 execute() 的区别】
      * - execute()：阻塞当前线程
      * - enqueue()：提交到线程池，立即返回
      */
     @Override
     public void enqueue(Callback callback) {
-        // TODO: 步骤 1 - 检查是否已执行
-        // synchronized (this) {
-        //     if (executed) {
-        //         throw new IllegalStateException("每个 Call 只能执行一次");
-        //     }
-        //     executed = true;
-        // }
+// 1. 同样要检查是否重复执行
+        synchronized (this) {
+            if (executed) {
+                throw new IllegalStateException("Already Executed");
+            }
+            executed = true;
+        }
 
-        // TODO: 步骤 2-3
-        // 创建 AsyncCall 并提交给 Dispatcher
-        // client.dispatcher().enqueue(new AsyncCall(callback));
-        
+        // 2. 包装成 AsyncCall，扔给调度器去安排线程
+        client.dispatcher().enqueue(new AsyncCall(callback));
+
     }
 
     @Override
     public void cancel() {
         // TODO: 设置 canceled 标志
-        // canceled = true;
-        
+        canceled = true;
+
     }
 
     @Override
     public boolean isExecuted() {
         // TODO: 返回 executed
-        return false;
+        return executed;
     }
 
     @Override
     public boolean isCanceled() {
         // TODO: 返回 canceled
-        return false;
+        return canceled;
     }
 
     @Override
     public Call clone() {
         // TODO: 创建新的 RealCall
         // return new RealCall(client, originalRequest);
-        return null;
+        return new RealCall(client, originalRequest);
     }
 
     // ========== 核心方法：构建拦截器链 ==========
-    
+
     /**
      * 通过拦截器链获取响应
-     * 
+     * <p>
      * ⭐⭐⭐⭐⭐ 这是最核心的方法！！！
-     * 
+     * <p>
      * 【职责】
      * 1. 构建完整的拦截器链
      * 2. 按正确的顺序添加拦截器
      * 3. 创建 RealInterceptorChain
      * 4. 执行链并返回响应
-     * 
+     * <p>
      * 【拦截器的顺序（非常重要！）】
      * 1. Application Interceptors（用户添加）
-     *    - 最外层
-     *    - 看到完整的原始请求
-     *    - 不受重试、重定向影响
-     * 
+     * - 最外层
+     * - 看到完整的原始请求
+     * - 不受重试、重定向影响
+     * <p>
      * 2. RetryAndFollowUpInterceptor（重试和重定向）
-     *    - 处理请求失败的重试
-     *    - 处理 3xx 重定向
-     * 
+     * - 处理请求失败的重试
+     * - 处理 3xx 重定向
+     * <p>
      * 3. BridgeInterceptor（桥接拦截器）
-     *    - 补充必要的 HTTP 头
-     *    - User-Agent, Content-Type 等
-     * 
+     * - 补充必要的 HTTP 头
+     * - User-Agent, Content-Type 等
+     * <p>
      * 4. CacheInterceptor（缓存拦截器）
-     *    - 检查缓存
-     *    - 避免不必要的网络请求
-     *    - 我们的简化版没有实现
-     * 
+     * - 检查缓存
+     * - 避免不必要的网络请求
+     * - 我们的简化版没有实现
+     * <p>
      * 5. ConnectInterceptor（连接拦截器）
-     *    - 从连接池获取连接
-     *    - 建立 TCP 连接
-     * 
+     * - 从连接池获取连接
+     * - 建立 TCP 连接
+     * <p>
      * 6. Network Interceptors（用户添加）
-     *    - 看到实际发送到服务器的请求
-     *    - 可能被调用多次（重试）
-     * 
+     * - 看到实际发送到服务器的请求
+     * - 可能被调用多次（重试）
+     * <p>
      * 7. CallServerInterceptor（服务器调用拦截器）
-     *    - 最内层
-     *    - 执行真实的网络 I/O
-     * 
+     * - 最内层
+     * - 执行真实的网络 I/O
+     * <p>
      * 【为什么这个顺序？】
      * - 应用拦截器：最外层，看到原始请求
      * - 重试拦截器：需要在其他拦截器之前，才能重试整个流程
@@ -240,64 +257,70 @@ public class RealCall implements Call {
      * - 连接拦截器：建立连接，为网络请求准备
      * - 网络拦截器：看到实际的网络请求
      * - 服务器拦截器：最内层，执行真实请求
-     * 
+     *
      * @return 响应对象
      * @throws IOException 执行失败时抛出
      */
     private Response getResponseWithInterceptorChain() throws IOException {
         // TODO: 步骤 1 - 创建拦截器列表
         // List<Interceptor> interceptors = new ArrayList<>();
-        
+
         // TODO: 步骤 2 - 按顺序添加拦截器
-        
+
         // 2.1 添加应用拦截器（用户添加）
         // interceptors.addAll(client.interceptors());
-        
+        // 1. 用户自定义的应用拦截器 (Application Interceptors)
+        // 作用：最早接触请求，最后接触响应。例如：全局日志、Token添加
+        interceptors.addAll(client.interceptors());
+
         // 2.2 添加重试和重定向拦截器
         // interceptors.add(new RetryAndFollowUpInterceptor(client));
-        
-        // 2.3 添加桥接拦截器
-        // interceptors.add(new BridgeInterceptor());
-        
-        // 2.4 添加缓存拦截器（我们的简化版跳过）
-        // interceptors.add(new CacheInterceptor(client.cache()));
-        
-        // 2.5 添加连接拦截器
-        // interceptors.add(new ConnectInterceptor(client));
-        
-        // 2.6 添加网络拦截器（用户添加）
-        // interceptors.addAll(client.networkInterceptors());
-        
-        // 2.7 添加服务器调用拦截器
-        // interceptors.add(new CallServerInterceptor());
+        interceptors.add(new RetryAndFollowUpInterceptor(client));
 
-        // TODO: 步骤 3 - 创建拦截器链
-        // Interceptor.Chain chain = new RealInterceptorChain(
-        //     interceptors,           // 拦截器列表
-        //     0,                      // 起始索引
-        //     originalRequest,        // 原始请求
-        //     client,                 // OkHttpClient
-        //     client.connectTimeoutMillis(),  // 连接超时
-        //     client.readTimeoutMillis(),     // 读取超时
-        //     client.writeTimeoutMillis()     // 写入超时
-        // );
+
+        // 2.3 添加桥接拦截器
+        interceptors.add(new BridgeInterceptor());
+
+        // 2.4 添加缓存拦截器（我们的简化版跳过）
+        interceptors.add(new CacheInterceptor(client.cache()));
+
+        // 2.5 添加连接拦截器
+        interceptors.add(new ConnectInterceptor(client));
+
+        // 2.6 添加网络拦截器（用户添加）
+        interceptors.addAll(client.networkInterceptors());
+
+        // 2.7 添加服务器调用拦截器
+        interceptors.add(new CallServerInterceptor());
+
+        TODO:
+        步骤 3 - 创建拦截器链
+        Interceptor.Chain chain = new RealInterceptorChain(
+                interceptors,           // 拦截器列表
+                0,                      // 起始索引
+                originalRequest,        // 原始请求
+                client,                 // OkHttpClient
+                client.connectTimeoutMillis(),  // 连接超时
+                client.readTimeoutMillis(),     // 读取超时
+                client.writeTimeoutMillis()     // 写入超时
+        );
 
         // TODO: 步骤 4 - 执行链
-        // return chain.proceed(originalRequest);
-        
+        return chain.proceed(originalRequest);
+
         return null;
     }
 
     // ========== 异步请求的内部类 ==========
-    
+
     /**
      * 异步请求的包装类
-     * 
+     * <p>
      * 【为什么需要这个类？】
      * - 实现 Runnable，可以提交到线程池
      * - 封装回调逻辑
      * - 处理异常和取消
-     * 
+     * <p>
      * 【为什么是内部类？】
      * - 可以访问 RealCall 的字段
      * - 逻辑上属于 RealCall
@@ -311,7 +334,7 @@ public class RealCall implements Call {
 
         /**
          * 在线程池中执行
-         * 
+         * <p>
          * 【执行流程】
          * 1. 执行拦截器链
          * 2. 检查是否已取消
@@ -321,35 +344,35 @@ public class RealCall implements Call {
         @Override
         public void run() {
             // TODO: 实现异步执行逻辑
-            
-            // boolean signalledCallback = false;
-            // try {
-            //     // 1. 执行请求
-            //     Response response = getResponseWithInterceptorChain();
-            //     
-            //     // 2. 检查是否已取消
-            //     if (canceled) {
-            //         signalledCallback = true;
-            //         callback.onFailure(RealCall.this, new IOException("Canceled"));
-            //     } else {
-            //         signalledCallback = true;
-            //         callback.onResponse(RealCall.this, response);
-            //     }
-            // } catch (IOException e) {
-            //     // 3. 处理异常
-            //     if (!signalledCallback) {
-            //         callback.onFailure(RealCall.this, e);
-            //     }
-            // } finally {
-            //     // 4. 通知 Dispatcher
-            //     client.dispatcher().finished(this);
-            // }
-            
+
+            boolean signalledCallback = false;
+            try {
+                Response response = getResponseWithInterceptorChain();
+
+                if (client.dispatcher().executorService().isShutdown()) {
+                    // 线程池都要关了，直接报错
+                    callback.onFailure(RealCall.this, new IOException("Canceled"));
+                } else {
+                    signalledCallback = true;
+                    // 回调成功
+                    callback.onResponse(RealCall.this, response);
+                }
+            } catch (IOException e) {
+                if (signalledCallback) {
+                    // Do not signal the callback twice!
+                    System.out.println("Callback failure for " + RealCall.this + ": " + e.getMessage());
+                } else {
+                    callback.onFailure(RealCall.this, e);
+                }
+            } finally {
+                client.dispatcher().finished(this);
+            }
+
         }
 
         /**
          * 获取外部的 RealCall
-         * 
+         * <p>
          * 【为什么需要这个方法？】
          * - Dispatcher 需要获取 RealCall
          * - 用于管理请求

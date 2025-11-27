@@ -9,92 +9,92 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 调度器 - 管理异步请求的执行
- * 
+ * <p>
  * 【为什么需要调度器？】
  * 1. 管理异步请求的执行
  * 2. 控制并发数量（防止资源耗尽）
  * 3. 管理等待队列
  * 4. 提供线程池
- * 
+ * <p>
  * 【核心职责】
  * 1. 线程池管理：创建和管理线程池
  * 2. 并发控制：限制同时执行的请求数
  * 3. 队列管理：管理运行队列和等待队列
  * 4. 生命周期：跟踪请求的执行状态
- * 
+ * <p>
  * 【三个队列】
  * - runningAsyncCalls：正在运行的异步请求
  * - readyAsyncCalls：等待执行的异步请求
  * - runningSyncCalls：正在运行的同步请求
- * 
+ * <p>
  * 【工作流程】
  * 1. 新请求来了 → enqueue()
  * 2. 检查并发数 → 未满？直接执行：加入等待队列
  * 3. 请求完成 → finished()
  * 4. 从等待队列取下一个 → promoteAndExecute()
- * 
+ *
  * @author Your Name
  */
 public class Dispatcher {
-    
+
     // ========== 配置 ==========
-    
+
     /**
      * 最大并发请求数
-     * 
+     * <p>
      * 【默认值】64
-     * 
+     * <p>
      * 【为什么是64？】
      * - 平衡性能和资源
      * - Chrome浏览器是6个/host
      * - OkHttp更激进，64个全局
      */
     private int maxRequests = 64;
-    
+
     /**
      * 每个主机最大并发请求数
-     * 
+     * <p>
      * 【默认值】5
-     * 
+     * <p>
      * 【为什么需要？】
      * - 防止对单个服务器压力过大
      * - 遵守HTTP规范建议
      */
     private int maxRequestsPerHost = 5;
-    
+
     /**
      * 线程池
-     * 
+     * <p>
      * 【延迟创建】
      * - 第一次使用时才创建
      * - 如果只用同步请求，不需要线程池
      */
     private ExecutorService executorService;
-    
+
     // ========== 队列 ==========
-    
+
     /**
      * 正在运行的异步请求
-     * 
+     * <p>
      * 【为什么用Deque？】
      * - 需要遍历和删除
      * - ArrayDeque性能好
      */
     private final Deque<RealCall.AsyncCall> runningAsyncCalls = new ArrayDeque<>();
-    
+
     /**
      * 等待执行的异步请求
-     * 
+     * <p>
      * 【什么时候用？】
      * - 并发数已满
      * - 请求加入等待队列
      * - 有请求完成时，从这里取
      */
     private final Deque<RealCall.AsyncCall> readyAsyncCalls = new ArrayDeque<>();
-    
+
     /**
      * 正在运行的同步请求
-     * 
+     * <p>
      * 【为什么需要？】
      * - 跟踪同步请求
      * - 统计总请求数
@@ -103,113 +103,103 @@ public class Dispatcher {
     private final Deque<RealCall> runningSyncCalls = new ArrayDeque<>();
 
     // ========== 线程池管理 ==========
-    
+
     /**
      * 获取或创建线程池
-     * 
+     * <p>
      * 【线程池配置】
      * - 核心线程数：0（不保留空闲线程）
      * - 最大线程数：无限制（依靠maxRequests控制）
      * - 空闲存活：60秒
      * - 队列：SynchronousQueue（不缓存任务）
-     * 
+     * <p>
      * 【为什么这样配置？】
      * 1. 核心线程数0：节省资源，按需创建
      * 2. 最大线程数无限：依靠maxRequests控制并发
      * 3. 60秒超时：空闲线程自动回收
      * 4. SynchronousQueue：直接交给线程，不缓存
-     * 
+     *
      * @return 线程池
      */
     public synchronized ExecutorService executorService() {
-        // TODO: 实现线程池创建
-        // if (executorService == null) {
-        //     executorService = new ThreadPoolExecutor(
-        //         0,                      // 核心线程数
-        //         Integer.MAX_VALUE,      // 最大线程数
-        //         60,                     // 空闲存活时间
-        //         TimeUnit.SECONDS,       // 时间单位
-        //         new SynchronousQueue<>(),  // 任务队列
-        //         threadFactory("OkHttp Dispatcher")  // 线程工厂
-        //     );
-        // }
-        // return executorService;
-        
-        return null;
+        if (executorService == null) {
+            // ⭐ 线程池配置精髓：
+            // corePoolSize = 0: 不保留空闲线程
+            // maximumPoolSize = MAX: 线程数无限 (因为我们自己在外面控制了 maxRequests)
+            // keepAlive = 60s: 闲置 60 秒自动销毁
+            // queue = SynchronousQueue: 不缓存任务，直接交给线程跑
+            executorService = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60, TimeUnit.SECONDS,
+                    new SynchronousQueue<Runnable>(), threadFactory("OkHttp Dispatcher", false));
+        }
+        return executorService;
     }
 
     /**
      * 创建线程工厂
-     * 
+     * <p>
      * 【作用】
      * - 设置线程名称（方便调试）
      * - 设置是否守护线程
-     * 
+     *
      * @param name 线程名称
      * @return 线程工厂
      */
     private java.util.concurrent.ThreadFactory threadFactory(final String name) {
-        // TODO: 实现线程工厂
-        // return new java.util.concurrent.ThreadFactory() {
-        //     @Override
-        //     public Thread newThread(Runnable r) {
-        //         Thread thread = new Thread(r, name);
-        //         thread.setDaemon(false);  // 不是守护线程
-        //         return thread;
-        //     }
-        // };
-        
-        return null;
+        return runnable -> {
+            Thread result = new Thread(runnable, name);
+            result.setDaemon(daemon);
+            return result;
+        };
     }
 
     // ========== 异步请求管理 ==========
-    
+
     /**
      * 添加异步请求到队列
-     * 
+     * <p>
      * 【执行流程】
      * 1. 检查并发数
      * 2. 未满：加入运行队列，提交到线程池
      * 3. 已满：加入等待队列
-     * 
+     * <p>
      * 【为什么同步？】
      * - 多个线程可能同时调用
      * - 保护队列的线程安全
-     * 
+     *
      * @param call 异步调用
      */
     public synchronized void enqueue(RealCall.AsyncCall call) {
-        // TODO: 步骤1 - 检查并发数
-        // if (runningAsyncCalls.size() < maxRequests) {
-        //     // 未达到最大并发数，直接执行
-        //     runningAsyncCalls.add(call);
-        //     executorService().execute(call);
-        // } else {
-        //     // 已达到最大并发数，加入等待队列
-        //     readyAsyncCalls.add(call);
-        // }
+// 先看看正在跑的有没有超过 64，并且同一个 host 有没有超过 5
+        if (runningAsyncCalls.size() < maxRequests && runningCallsForHost(call) < maxRequestsPerHost) {
+            // 名额没满，直接进运行队列，开始跑
+            runningAsyncCalls.add(call);
+            executorService().execute(call);
+        } else {
+            // 名额满了，去等待队列排队
+            readyAsyncCalls.add(call);
+        }
     }
 
     /**
      * 同步请求开始执行
-     * 
+     * <p>
      * 【作用】
      * - 记录同步请求
      * - 统计总请求数
-     * 
+     *
      * @param call 同步调用
      */
     public synchronized void executed(RealCall call) {
         // TODO: 加入同步请求队列
-        // runningSyncCalls.add(call);
+        runningSyncCalls.add(call);
     }
 
     /**
      * 同步请求执行完成
-     * 
+     * <p>
      * 【作用】
      * - 从队列中移除
-     * 
+     *
      * @param call 同步调用
      */
     public synchronized void finished(RealCall call) {
@@ -219,29 +209,30 @@ public class Dispatcher {
 
     /**
      * 异步请求执行完成
-     * 
+     * <p>
      * 【执行流程】
      * 1. 从运行队列移除
      * 2. 尝试从等待队列取下一个
      * 3. 如果有，提交到线程池
-     * 
+     *
      * @param call 异步调用
      */
     public synchronized void finished(RealCall.AsyncCall call) {
-        // TODO: 步骤1 - 从运行队列移除
-        // runningAsyncCalls.remove(call);
-        
-        // TODO: 步骤2 - 尝试提升等待队列中的请求
-        // promoteAndExecute();
+// 从运行队列移除
+        synchronized (this) {
+            if (!runningAsyncCalls.remove(call)) throw new AssertionError("Call wasn't in-flight!");
+        }
+        // 尝试去等待队列捞人
+        promoteAndExecute();
     }
 
     /**
      * 从等待队列中提升请求到执行队列
-     * 
+     * <p>
      * 【为什么需要这个方法？】
      * - 请求完成后，有空闲槽位
      * - 从等待队列取下一个请求执行
-     * 
+     * <p>
      * 【执行流程】
      * 1. 检查是否还有空闲槽位
      * 2. 从等待队列取出请求
@@ -249,108 +240,114 @@ public class Dispatcher {
      * 4. 提交到线程池
      */
     private void promoteAndExecute() {
-        // TODO: 实现提升逻辑
-        // if (runningAsyncCalls.size() >= maxRequests) {
-        //     return;  // 已达到最大并发数
-        // }
-        //
-        // if (readyAsyncCalls.isEmpty()) {
-        //     return;  // 等待队列为空
-        // }
-        //
-        // // 从等待队列取出请求
-        // RealCall.AsyncCall call = readyAsyncCalls.removeFirst();
-        // runningAsyncCalls.add(call);
-        // executorService().execute(call);
-    }
+// 注意：这里不能加 synchronized，因为 execute() 可能会耗时，我们不希望锁住整个调度器
+        // 但为了简化演示，我们把锁加在内部操作上
 
-    /**
-     * 取消所有请求
-     * 
-     * 【什么时候用？】
-     * - 应用关闭时
-     * - 用户取消所有请求
-     * 
-     * 【执行流程】
-     * 1. 取消等待队列中的请求
-     * 2. 取消运行中的异步请求
-     * 3. 取消运行中的同步请求
-     */
-    public synchronized void cancelAll() {
-        // TODO: 取消所有请求
-        // for (RealCall.AsyncCall call : readyAsyncCalls) {
-        //     call.get().cancel();
-        // }
-        // 
-        // for (RealCall.AsyncCall call : runningAsyncCalls) {
-        //     call.get().cancel();
-        // }
-        // 
-        // for (RealCall call : runningSyncCalls) {
-        //     call.cancel();
-        // }
-    }
+        synchronized (this) {
+            // 只要等待队列还有人
+            Iterator<RealCall.AsyncCall> i = readyAsyncCalls.iterator();
+            while (i.hasNext()) {
+                RealCall.AsyncCall call = i.next();
 
-    // ========== 统计信息 ==========
-    
-    /**
-     * 获取正在运行的请求数量
-     * 
-     * @return 运行中的请求数（同步+异步）
-     */
-    public synchronized int runningCallsCount() {
-        // TODO: return runningAsyncCalls.size() + runningSyncCalls.size();
-        return 0;
-    }
+                // 检查名额够不够
+                if (runningAsyncCalls.size() >= maxRequests) break; // 总数超了，不叫了
+                if (runningCallsForHost(call) >= maxRequestsPerHost)
+                    continue; // 这个 host 超了，跳过，看下一个人
 
-    /**
-     * 获取等待执行的请求数量
-     * 
-     * @return 等待队列大小
-     */
-    public synchronized int queuedCallsCount() {
-        // TODO: return readyAsyncCalls.size();
-        return 0;
-    }
+                // 叫号成功！
+                i.remove(); // 从等待队列移除
+                runningAsyncCalls.add(call); // 加入运行队列
+                executorService().execute(call); // 扔给线程池跑
+            }
+        }
 
-    // ========== 配置方法 ==========
-    
-    /**
-     * 设置最大并发请求数
-     * 
-     * @param maxRequests 最大并发数
-     */
-    public synchronized void setMaxRequests(int maxRequests) {
-        // TODO: 实现设置
-        // if (maxRequests < 1) {
-        //     throw new IllegalArgumentException("max < 1: " + maxRequests);
-        // }
-        // this.maxRequests = maxRequests;
-    }
+        /**
+         * 取消所有请求
+         * <p>
+         * 【什么时候用？】
+         * - 应用关闭时
+         * - 用户取消所有请求
+         * <p>
+         * 【执行流程】
+         * 1. 取消等待队列中的请求
+         * 2. 取消运行中的异步请求
+         * 3. 取消运行中的同步请求
+         */
+        public synchronized void cancelAll () {
+            // TODO: 取消所有请求
+            // for (RealCall.AsyncCall call : readyAsyncCalls) {
+            //     call.get().cancel();
+            // }
+            //
+            // for (RealCall.AsyncCall call : runningAsyncCalls) {
+            //     call.get().cancel();
+            // }
+            //
+            // for (RealCall call : runningSyncCalls) {
+            //     call.cancel();
+            // }
+        }
 
-    public synchronized int getMaxRequests() {
-        // TODO: return maxRequests;
-        return 0;
-    }
+        // ========== 统计信息 ==========
 
-    /**
-     * 设置每个主机最大并发数
-     * 
-     * @param maxRequestsPerHost 每个主机最大并发数
-     */
-    public synchronized void setMaxRequestsPerHost(int maxRequestsPerHost) {
-        // TODO: 实现设置
-        // if (maxRequestsPerHost < 1) {
-        //     throw new IllegalArgumentException("max < 1: " + maxRequestsPerHost);
-        // }
-        // this.maxRequestsPerHost = maxRequestsPerHost;
-    }
+        /**
+         * 获取正在运行的请求数量
+         *
+         * @return 运行中的请求数（同步+异步）
+         */
+        public synchronized int runningCallsCount () {
+            // TODO: return runningAsyncCalls.size() + runningSyncCalls.size();
+            return 0;
+        }
 
-    public synchronized int getMaxRequestsPerHost() {
-        // TODO: return maxRequestsPerHost;
-        return 0;
+        /**
+         * 获取等待执行的请求数量
+         *
+         * @return 等待队列大小
+         */
+        public synchronized int queuedCallsCount () {
+            // TODO: return readyAsyncCalls.size();
+            return 0;
+        }
+
+        // ========== 配置方法 ==========
+
+        /**
+         * 设置最大并发请求数
+         *
+         * @param maxRequests 最大并发数
+         */
+        public synchronized void setMaxRequests ( int maxRequests){
+            // TODO: 实现设置
+            // if (maxRequests < 1) {
+            //     throw new IllegalArgumentException("max < 1: " + maxRequests);
+            // }
+            // this.maxRequests = maxRequests;
+        }
+
+        public synchronized int getMaxRequests () {
+            // TODO: return maxRequests;
+            return 0;
+        }
+
+        /**
+         * 设置每个主机最大并发数
+         *
+         * @param maxRequestsPerHost 每个主机最大并发数
+         */
+        public synchronized void setMaxRequestsPerHost ( int maxRequestsPerHost){
+            // TODO: 实现设置
+            // if (maxRequestsPerHost < 1) {
+            //     throw new IllegalArgumentException("max < 1: " + maxRequestsPerHost);
+            // }
+            // this.maxRequestsPerHost = maxRequestsPerHost;
+        }
+
+        public synchronized int getMaxRequestsPerHost () {
+            // TODO: return maxRequestsPerHost;
+            return 0;
+        }
     }
-}
 
 /*
 【编写提示】
