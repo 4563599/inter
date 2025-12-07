@@ -16,13 +16,37 @@
         <activity
             android:name="com.example.androiddemo.java.thread.ThreadActivity"
             android:exported="true"
-            android:label="@string/app_name"
+            android:label="线程池类型演示"
+            android:theme="@style/Theme.AppCompat">
+        </activity>
+        <activity
+            android:name="com.example.androiddemo.java.thread.ThreadPoolExecutorActivity"
+            android:exported="true"
+            android:label="ThreadPoolExecutor参数详解"
             android:theme="@style/Theme.AppCompat">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+        <activity
+            android:name="com.example.androiddemo.kotlin.callableReference.CallableReferenceActivity"
+            android:exported="true"
+            android:label="Kotlin成员引用操作符"
+            android:theme="@style/Theme.AppCompat">
+        </activity>
+        <activity
+            android:name="com.example.androiddemo.java.thread.ThreadPoolDemoActivity"
+            android:exported="false"
+            android:label="线程池演示详情"
+            android:theme="@style/Theme.AppCompat">
+        </activity>
+        <activity
+            android:name="com.example.androiddemo.kotlin.callableReference.CallableReferenceDemoActivity"
+            android:exported="false"
+            android:label="Kotlin成员引用演示详情"
+            android:theme="@style/Theme.AppCompat">
         </activity>
     </application>
 
