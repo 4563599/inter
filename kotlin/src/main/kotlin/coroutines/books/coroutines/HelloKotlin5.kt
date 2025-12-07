@@ -7,7 +7,7 @@ import kotlinx.coroutines.runBlocking
 
 fun main() = runBlocking {
     val myJob = GlobalScope.launch {
-        delay(1000)
+        delay(5000)
         println("Kotlin Coroutines")
     }
 

@@ -18,18 +18,18 @@ fun main(args: Array<String>) {
     }
 
     println("----------")
-
-    val person = Person()
-
-    person.age = 20
-    person.isMarried = false
-    person.name = "zhangsan"
-
-    println(person.age)
-    println(person.isMarried)
-    println(person.name)
-
-    println("----------")
+//
+//    val person = Person()
+//
+//    person.age = 20
+//    person.isMarried = false
+//    person.name = "zhangsan"
+//
+//    println(person.age)
+//    println(person.isMarried)
+//    println(person.name)
+//
+//    println("----------")
 
     /*
         在Java中，所有引用都可能为null，然而在Kotlin中，对null是有着严格的检查与限制的，这就使得某个来自于Java的引用在Kotlin中
